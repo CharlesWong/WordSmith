@@ -1,0 +1,31 @@
+{
+  "name": "word_smith",
+  "version": "1.0.0",
+  "description": "WriteWell is a browser extension that provides real-time writing suggestions to improve your grammar, style, and tone using AI. It integrates with Ollama to provide context-aware writing improvements directly in your browser.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CharlesWong/WordSmith.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/CharlesWong/WordSmith/issues"
+  },
+  "homepage": "https://github.com/CharlesWong/WordSmith#readme",
+  "release": {
+    "branches": ["main"],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/changelog",
+      ["@semantic-release/github", {
+        "assets": ["dist/extension.zip"]
+      }],
+      "@semantic-release/git"
+    ]
+  }
+}
