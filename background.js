@@ -42,19 +42,17 @@ class OllamaService {
 
       // Then check if the specified model is available
       const tags = await tagsResponse.json();
-      const modelAvailable = tags.models?.some(m => m.name === model);
-
-      if (!modelAvailable) {
-        return {
-          success: true,
-          modelAvailable: false,
-          error: `Model "${model}" is not installed`
-        };
-      }
+      console.log('Available models:', tags.models);
+      console.log('Model:', model);
+      const modelAvailable = tags.models?.some(m => 
+        m.name === model || m.name === `${model}:latest`
+      );
+      console.log('Model available:', modelAvailable);
 
       return {
         success: true,
-        modelAvailable: true
+        modelAvailable: modelAvailable,
+        error: !modelAvailable ? `Model "${model}" is not installed. Try running: ollama pull ${model}` : null
       };
     } catch (error) {
       console.error('Connection check failed:', error);
@@ -499,15 +497,26 @@ ${toneGuides[preferences.tone] || 'No guide available for this tone.'}`;
 
 const ollamaService = new OllamaService();
 
-// Handle messages from content script
+// Main message listener
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Received message:', request);
 
   if (request.action === 'checkConnection') {
+    // Update settings with provided model and address if any
+    if (request.model || request.address) {
+      chrome.storage.local.set({
+        grammarSettings: {
+          ...DEFAULT_SETTINGS,
+          ollamaModel: request.model,
+          ollamaAddress: request.address
+        }
+      });
+    }
+
     ollamaService.checkConnection()
-      .then(() => {
-        console.log('Connection check successful');
-        sendResponse({ success: true });
+      .then((result) => {
+        console.log('Connection check result:', result);
+        sendResponse(result);  // Pass through the entire result object
       })
       .catch(error => {
         console.error('Connection check failed:', error);
@@ -580,34 +589,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 console.log('WriteWell background service worker initialized at:', new Date().toISOString());
 
 debugLog('Starting background service...');
-
-// ADD AT THE END OF THE FILE: Message Listener for analyze and checkConnection actions.
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'analyze') {
-    // Create an instance of the OllamaService and call getSuggestions
-    const ollamaService = new OllamaService();
-    ollamaService.getSuggestions(request.text, request.preferences)
-      .then(suggestions => {
-        sendResponse({ success: true, suggestions });
-      })
-      .catch(error => {
-        sendResponse({ success: false, error: error.message });
-      });
-    return true; // Keep the message channel open for async response
-  }
-
-  if (request.action === 'checkConnection') {
-    const ollamaService = new OllamaService();
-    ollamaService.checkConnection()
-      .then(() => {
-        sendResponse({ success: true });
-      })
-      .catch(error => {
-        sendResponse({ success: false, error: error.message });
-      });
-    return true; // Keep the message channel open
-  }
-});
 
 // Add handler for generating custom guides
 async function generateGuide(type, name, description) {

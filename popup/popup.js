@@ -285,15 +285,20 @@ document.getElementById('testConnection').addEventListener('click', async () => 
       model: selectedModel,
       address: ollamaAddress
     });
-    
+    console.log('Selected model:', selectedModel);
+    console.log('Ollama address:', ollamaAddress);
+    console.log('Connection response:', response);
+
+
     if (response.success) {
-      if (response.modelAvailable) {
+      if (response.modelAvailable === true) {  // Explicitly check for true
+        
         status.textContent = `Connected successfully! Model "${selectedModel}" is available.`;
+        status.className = 'success';
       } else {
         status.textContent = `Connected to Ollama, but model "${selectedModel}" is not installed. Run: ollama pull ${selectedModel}`;
         status.className = 'warning';
       }
-      status.className = 'success';
     } else {
       status.textContent = response.error || 'Connection failed';
       status.className = 'error';

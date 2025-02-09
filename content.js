@@ -574,7 +574,7 @@ Please provide suggestions in the following JSON format:
     `;
     
     item.querySelector('.apply-suggestion').addEventListener('click', () => {
-      this.applySuggestion(suggestion);
+      this.applySuggestion(this.lastTarget, suggestion);
     });
     
     box.appendChild(item);
@@ -717,6 +717,27 @@ Please provide suggestions in the following JSON format:
     if (!text || text.length < 3) {
       this.clearSuggestions();
       return;
+    }
+
+    // Get latest settings before checking
+    try {
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'getSettings' }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('Error getting settings:', chrome.runtime.lastError);
+            resolve({ success: false });
+            return;
+          }
+          resolve(response);
+        });
+      });
+      
+      if (response?.success) {
+        this.settings = response.settings;
+        console.log('Updated settings before check:', this.settings);
+      }
+    } catch (error) {
+      console.error('Failed to get latest settings:', error);
     }
 
     // Only check grammar if extension is enabled
@@ -902,13 +923,12 @@ Please provide suggestions in the following JSON format:
   }
 
   // Update applySuggestion method
-  applySuggestion(suggestion) {
-    if (!this.lastTarget) {
+  applySuggestion(target, suggestion) {
+    if (!target) {
       console.error("No target element available for applying suggestion.");
       return;
     }
     
-    const target = this.lastTarget;
     let originalContent = "";
     
     if (target.value !== undefined) {
