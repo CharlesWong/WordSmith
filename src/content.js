@@ -753,10 +753,14 @@ Please provide suggestions in the following JSON format:
       const currentUrl = window.location.href;
       const isAllowed = this.settings.allowedUrls.some(pattern => {
         // Convert wildcard pattern to regex
+        // Escape all special regex chars except * which becomes .*
         const regexPattern = pattern
-          .replace(/\./g, '\\.')
-          .replace(/\*/g, '.*');
-        const regex = new RegExp(`^${regexPattern}$`);
+          .replace(/[.+?^${}()/|[\]\\]/g, '\\$&') // Escape special regex chars
+          .replace(/\*/g, '.*'); // Convert * to .*
+        
+        // Make the regex match the full URL or subdomain/path variations
+        const regex = new RegExp(regexPattern);
+        console.log('Checking URL:', currentUrl, 'against pattern:', pattern, 'regexPattern:', regexPattern, 'result:', regex.test(currentUrl));
         return regex.test(currentUrl);
       });
       
