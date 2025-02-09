@@ -4,17 +4,49 @@ const DEFAULT_SETTINGS = {
   tone: 'neutral',
   ollamaAddress: 'http://localhost:11434',
   ollamaModel: 'llama2',
-  simpleMode: true  // Default to simple mode
+  simpleMode: true,  // Default to simple mode
+  enabled: true  // Default to enabled
 };
 
 // Load saved preferences from local storage using the "grammarSettings" key
 chrome.storage.local.get(['grammarSettings'], (result) => {
-  const settings = { ...DEFAULT_SETTINGS, ...result.grammarSettings };
+  // Ensure we have valid settings object
+  const currentSettings = result.grammarSettings || {};
+  const settings = { 
+    ...DEFAULT_SETTINGS, 
+    ...currentSettings
+  };
+  
+  // Initialize all UI elements with settings
   document.getElementById('style').value = settings.style;
   document.getElementById('tone').value = settings.tone;
   document.getElementById('ollamaAddress').value = settings.ollamaAddress;
   document.getElementById('ollamaModel').value = settings.ollamaModel;
   document.getElementById('experienceMode').checked = !settings.simpleMode;
+  document.getElementById('extensionEnabled').checked = settings.enabled !== false;
+  
+  // Set initial mode status text
+  const modeStatusEl = document.getElementById('modeStatus');
+  if (modeStatusEl) {  // Add null check
+    if (!settings.simpleMode) {
+      modeStatusEl.textContent = 'Advanced Mode';
+    } else {
+      modeStatusEl.textContent = 'Simple Mode';
+    }
+    modeStatusEl.className = 'enabled';
+  }
+  
+  // Set initial enabled status text
+  const statusEl = document.getElementById('enabledStatus');
+  if (statusEl) {  // Add null check
+    if (settings.enabled !== false) {
+      statusEl.textContent = 'Enabled';
+      statusEl.className = 'enabled';
+    } else {
+      statusEl.textContent = 'Disabled';
+      statusEl.className = 'disabled';
+    }
+  }
 });
 
 // Save preferences on change using updateSettings
@@ -193,6 +225,7 @@ function saveSettings(additionalSettings = {}) {
     tone: document.getElementById('tone').value,
     ollamaAddress: document.getElementById('ollamaAddress').value,
     ollamaModel: document.getElementById('ollamaModel').value,
+    enabled: document.getElementById('extensionEnabled').checked,
     ...additionalSettings  // Allow overriding with additional settings
   };
 
@@ -212,6 +245,28 @@ function saveSettings(additionalSettings = {}) {
 // Add event listeners for all settings changes
 document.querySelectorAll('select, input').forEach(element => {
   element.addEventListener('change', () => {
+    // Update enabled status text
+    if (element.id === 'extensionEnabled') {
+      const statusEl = document.getElementById('enabledStatus');
+      if (element.checked) {
+        statusEl.textContent = 'Enabled';
+        statusEl.className = 'enabled';
+        // Trigger connection check when enabled
+        checkConnection();
+        // Initialize the extension in content script
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]) {
+            chrome.tabs.sendMessage(tabs[0].id, {
+              type: 'initializeExtension',
+              forceCheck: true  // Add flag to force immediate check
+            });
+          }
+        });
+      } else {
+        statusEl.textContent = 'Disabled';
+        statusEl.className = 'disabled';
+      }
+    }
     saveSettings();
   });
 });
@@ -251,5 +306,15 @@ document.getElementById('testConnection').addEventListener('click', async () => 
 
 // Add toggle handler
 document.getElementById('experienceMode').addEventListener('change', (event) => {
+  const statusEl = document.getElementById('modeStatus');
+  if (!statusEl) return;  // Add null check
+  
+  if (event.target.checked) {
+    statusEl.textContent = 'Advanced Mode';
+    statusEl.className = 'enabled';
+  } else {
+    statusEl.textContent = 'Simple Mode';
+    statusEl.className = 'enabled';
+  }
   saveSettings({ simpleMode: !event.target.checked });
 }); 

@@ -2,7 +2,8 @@
 const DEFAULT_SETTINGS = {
   style: 'formal',
   tone: 'neutral',
-  simpleMode: true  // Default to simple mode
+  simpleMode: true,  // Default to simple mode
+  enabled: true  // Default to enabled
 };
 
 // Debug logging controlled by environment
@@ -11,6 +12,7 @@ class GrammarChecker {
     // Add settings property
     this.settings = DEFAULT_SETTINGS;
     this.loadSettings();
+    
     // Initialize debug mode
     this.DEBUG_MODE = localStorage.getItem('DEBUG_GRAMMAR_CHECK') === 'true';
     console.log('Initializing GrammarChecker...', config);
@@ -22,21 +24,19 @@ class GrammarChecker {
     
     this._textInputSelector = 'textarea, input[type="text"], [contenteditable="true"]';
     
-    // Add spin animation
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-    `;
-    document.head.appendChild(style);
-    
+    // Always initialize monitoring
     this.init();
     this.debounceTimeout = null;
     this.lastAnalyzedText = '';
     this.maxRetries = 3;
     this.retryDelay = 1000;
+
+    // Bind methods to maintain 'this' context
+    this.handleInput = this.handleInput.bind(this);
+    this.handleFocus = this.handleFocus.bind(this);
+    this.handleBlur = this.handleBlur.bind(this);
+    this.hideSuggestionBox = this.hideSuggestionBox.bind(this);
+    this.handleDocumentClick = this.handleDocumentClick.bind(this);
 
     // Add document click handler
     document.addEventListener('click', this.handleDocumentClick);
@@ -46,10 +46,34 @@ class GrammarChecker {
       if (message.type === 'settingsUpdated') {
         console.log('Settings updated:', message.settings);
         this.settings = message.settings;
-        // Always update the suggestion box header (even if there are no current suggestions)
+        
+        // Just hide/show UI based on enabled state
+        if (!this.settings.enabled) {
+          this.hideUI();
+        }
+        
+        // Always update the suggestion box header
         if (this.suggestionBox) {
           const suggestions = this.lastSuggestions || { grammar: [], style: [], tone: [] };
           this.prepareSuggestionBox(suggestions);
+        }
+      } else if (message.type === 'initializeExtension') {
+        // Re-initialize the extension
+        this.init();
+        // Start checking the current active element if any
+        const activeElement = document.activeElement;
+        if (message.forceCheck || (activeElement && activeElement.matches(this.textInputSelector))) {
+          // Force a check on the current text
+          const text = activeElement?.value || activeElement?.innerText || '';
+          if (text.length > 0) {
+            this.lastTarget = activeElement;
+            this.checkGrammar(text).then(suggestions => {
+              if (suggestions) {
+                this.lastSuggestions = suggestions;
+                this.updateSuggestions(activeElement, suggestions);
+              }
+            });
+          }
         }
       }
     });
@@ -648,14 +672,10 @@ Please provide suggestions in the following JSON format:
 
   // Initialize event listeners
   init() {
-    // Bind the event handlers to maintain 'this' context
-    this.boundHandleInput = this.handleInput.bind(this);
-    this.boundHandleFocus = this.handleFocus.bind(this);
-    
     // Add listeners to all matching elements
     document.querySelectorAll(this.textInputSelector).forEach(element => {
-      element.addEventListener('input', this.boundHandleInput);
-      element.addEventListener('focus', this.boundHandleFocus);
+      element.addEventListener('input', this.handleInput);
+      element.addEventListener('focus', this.handleFocus);
     });
     
     // Add listener for dynamically added elements
@@ -663,8 +683,8 @@ Please provide suggestions in the following JSON format:
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === 1 && node.matches(this.textInputSelector)) {
-            node.addEventListener('input', this.boundHandleInput);
-            node.addEventListener('focus', this.boundHandleFocus);
+            node.addEventListener('input', this.handleInput);
+            node.addEventListener('focus', this.handleFocus);
           }
         });
       });
@@ -677,7 +697,7 @@ Please provide suggestions in the following JSON format:
   }
 
   // Event Handlers
-  handleInput = (event) => {
+  async handleInput(event) {
     console.log('Input event triggered');
     const target = event.target;
     this.lastTarget = target;
@@ -699,6 +719,12 @@ Please provide suggestions in the following JSON format:
       return;
     }
 
+    // Only check grammar if extension is enabled
+    if (!this.settings?.enabled) {
+      console.log('Grammar checker is disabled, skipping check');
+      return;
+    }
+
     // Debounce the grammar check
     this.debounce(async () => {
       // Skip if text hasn't changed
@@ -712,7 +738,7 @@ Please provide suggestions in the following JSON format:
         this.updateSuggestions(target, suggestions);
       }
     }, 500);
-  };
+  }
 
   handleFocus = async (event) => {
     console.log('Focus event triggered on:', event.target);
