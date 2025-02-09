@@ -53,6 +53,43 @@
       </div>
       <button id="reconnect" class="hidden">Reconnect</button>
     </div>
+
+    <div class="section">
+      <h3>Ollama Settings</h3>
+      <div class="setting-group">
+        <label for="ollamaAddress">Server Address:</label>
+        <input type="text" id="ollamaAddress" placeholder="http://localhost:11434">
+      </div>
+      <div class="setting-group">
+        <label for="ollamaModel">Model:</label>
+        <select id="ollamaModel">
+          <option value="deepseek-r1">DeepSeek-R1</option>
+          <option value="deepseek-r1-671b">DeepSeek-R1 671B</option>
+          <option value="llama3.3">Llama 3.3</option>
+          <option value="llama3.2">Llama 3.2</option>
+          <option value="llama3.2-1b">Llama 3.2 1B</option>
+          <option value="llama3.2-vision">Llama 3.2 Vision</option>
+          <option value="llama3.2-vision-90b">Llama 3.2 Vision 90B</option>
+          <option value="llama3.1">Llama 3.1</option>
+          <option value="llama3.1-405b">Llama 3.1 405B</option>
+          <option value="phi4">Phi 4</option>
+          <option value="phi3">Phi 3 Mini</option>
+          <option value="gemma2-2b">Gemma 2 2B</option>
+          <option value="gemma2">Gemma 2 9B</option>
+          <option value="gemma2-27b">Gemma 2 27B</option>
+          <option value="mistral">Mistral</option>
+          <option value="moondream">Moondream 2</option>
+          <option value="neural-chat">Neural Chat</option>
+          <option value="starling-lm">Starling</option>
+          <option value="codellama">Code Llama</option>
+          <option value="llama2-uncensored">Llama 2 Uncensored</option>
+          <option value="llava">LLaVA</option>
+          <option value="solar">Solar</option>
+        </select>
+      </div>
+      <button id="testConnection">Test Connection</button>
+      <div id="connectionStatus"></div>
+    </div>
   </div>
   <script src="popup.js"></script>
 </body>

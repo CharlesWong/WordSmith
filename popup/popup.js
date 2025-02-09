@@ -1,8 +1,18 @@
+// Default settings
+const DEFAULT_SETTINGS = {
+  style: 'formal',
+  tone: 'neutral',
+  ollamaAddress: 'http://localhost:11434',
+  ollamaModel: 'llama2'
+};
+
 // Load saved preferences from local storage using the "grammarSettings" key
 chrome.storage.local.get(['grammarSettings'], (result) => {
-  const settings = result.grammarSettings || { style: 'formal', tone: 'neutral' };
+  const settings = { ...DEFAULT_SETTINGS, ...result.grammarSettings };
   document.getElementById('style').value = settings.style;
   document.getElementById('tone').value = settings.tone;
+  document.getElementById('ollamaAddress').value = settings.ollamaAddress;
+  document.getElementById('ollamaModel').value = settings.ollamaModel;
 });
 
 // Save preferences on change using updateSettings
@@ -170,5 +180,65 @@ document.getElementById('saveCustomTone').addEventListener('click', async () => 
     document.getElementById('customToneForm').classList.add('hidden');
     document.getElementById('customToneName').value = '';
     document.getElementById('customToneGuide').value = '';
+  }
+});
+
+// Save all settings when changed
+function saveSettings() {
+  const newSettings = {
+    style: document.getElementById('style').value,
+    tone: document.getElementById('tone').value,
+    ollamaAddress: document.getElementById('ollamaAddress').value,
+    ollamaModel: document.getElementById('ollamaModel').value
+  };
+
+  chrome.storage.local.set({ grammarSettings: newSettings }, () => {
+    chrome.storage.sync.set(newSettings);
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, {
+          type: 'settingsUpdated',
+          settings: newSettings
+        });
+      }
+    });
+  });
+}
+
+// Add change listeners to all inputs
+document.querySelectorAll('select, input').forEach(element => {
+  element.addEventListener('change', saveSettings);
+});
+
+// Test connection button
+document.getElementById('testConnection').addEventListener('click', async () => {
+  const status = document.getElementById('connectionStatus');
+  status.textContent = 'Testing connection...';
+  status.className = '';
+  const selectedModel = document.getElementById('ollamaModel').value;
+  const ollamaAddress = document.getElementById('ollamaAddress').value;
+  
+  try {
+    const response = await chrome.runtime.sendMessage({ 
+      action: 'checkConnection',
+      model: selectedModel,
+      address: ollamaAddress
+    });
+    
+    if (response.success) {
+      if (response.modelAvailable) {
+        status.textContent = `Connected successfully! Model "${selectedModel}" is available.`;
+      } else {
+        status.textContent = `Connected to Ollama, but model "${selectedModel}" is not installed. Run: ollama pull ${selectedModel}`;
+        status.className = 'warning';
+      }
+      status.className = 'success';
+    } else {
+      status.textContent = response.error || 'Connection failed';
+      status.className = 'error';
+    }
+  } catch (error) {
+    status.textContent = 'Connection failed: ' + error.message;
+    status.className = 'error';
   }
 }); 

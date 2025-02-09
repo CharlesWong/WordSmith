@@ -29,55 +29,40 @@ class OllamaService {
 
   // Add connection check method
   async checkConnection() {
+    const settings = await this.getSettings();
+    const address = settings.ollamaAddress || 'http://localhost:11434';
+    const model = settings.ollamaModel || 'mistral';
+
     try {
-      // Use a simple test prompt for connection check
-      const testRequest = {
-        model: DEFAULT_MODEL,
-        prompt: "Hi",
-        stream: false,
-        options: {
-          temperature: 0.1,
-          num_predict: 1
-        }
+      // First check if Ollama is running
+      const tagsResponse = await fetch(`${address}/api/tags`);
+      if (!tagsResponse.ok) {
+        throw new Error('Could not connect to Ollama server');
+      }
+
+      // Then check if the specified model is available
+      const tags = await tagsResponse.json();
+      const modelAvailable = tags.models?.some(m => m.name === model);
+
+      if (!modelAvailable) {
+        return {
+          success: true,
+          modelAvailable: false,
+          error: `Model "${model}" is not installed`
+        };
+      }
+
+      return {
+        success: true,
+        modelAvailable: true
       };
-
-      console.log('Testing Ollama connection with request:', testRequest);
-
-      const response = await fetch(OLLAMA_ENDPOINT, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(testRequest)
-      });
-
-      console.log('Ollama test response status:', response.status);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Ollama error response:', errorData);
-        
-        if (errorData.error?.includes('model not found')) {
-          throw new Error(`Model ${DEFAULT_MODEL} not found. Please run: ollama pull ${DEFAULT_MODEL}`);
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Ollama test response data:', data);
-
-      if (!data.response) {
-        throw new Error('Invalid response from Ollama');
-      }
-
-      console.log('Successfully connected to Ollama');
-      return true;
     } catch (error) {
-      console.error('Ollama connection failed:', error);
-      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-        throw new Error('Cannot connect to Ollama. Please make sure Ollama is running (http://localhost:11434)');
-      }
-      throw error;
+      console.error('Connection check failed:', error);
+      return {
+        success: false,
+        modelAvailable: false,
+        error: error.message
+      };
     }
   }
 

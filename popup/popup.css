@@ -90,4 +90,57 @@ select {
 #customToneForm textarea {
   height: 100px;
   resize: vertical;
+}
+
+.setting-group {
+  margin-bottom: 10px;
+}
+
+.setting-group label {
+  display: block;
+  margin-bottom: 4px;
+  color: #4a5568;
+}
+
+.setting-group input,
+.setting-group select {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+}
+
+#testConnection {
+  background: #4299e1;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+#testConnection:hover {
+  background: #3182ce;
+}
+
+#connectionStatus {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+#connectionStatus.success {
+  background: #c6f6d5;
+  color: #2f855a;
+}
+
+#connectionStatus.error {
+  background: #fed7d7;
+  color: #c53030;
+}
+
+#connectionStatus.warning {
+  background: #feebc8;
+  color: #9c4221;
 } 
