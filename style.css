@@ -191,42 +191,12 @@
     border-bottom: 2px wavy #ffa500;
   }
   
-  /* Circle indicator styles */
-  .suggestion-circle {
-    position: absolute;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: white;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.3s ease;
-    z-index: 10000;
-    cursor: pointer;
-    opacity: 0;
-  }
-  
-  .suggestion-circle.has-suggestions {
-    background: #3182ce;
-    color: white;
-    font-weight: bold;
-    font-size: 12px;
-    opacity: 1;
-  }
-  
-  .suggestion-circle.has-suggestions:hover {
-    transform: scale(1.1);
-    background: #2c5282;
-  }
-  
   .loading-circle {
     position: fixed;
     width: 30px;
     height: 30px;
     border-radius: 50%;
-    background: white;
+    background: #3182ce;  /* Blue background */
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     display: none;
     align-items: center;
@@ -234,17 +204,27 @@
     transition: all 0.3s ease;
     z-index: 10001;
     opacity: 0;
+    cursor: pointer;
   }
   
-  .loading-circle.visible {
-    opacity: 1;
+  .loading-circle:hover {
+    transform: scale(1.1);
+    background: #2c5282;  /* Darker blue on hover */
+  }
+  
+  .loading-circle .count {
+    color: white;  /* White text */
+    font-size: 14px;
+    font-weight: bold;
+    text-align: center;
+    line-height: 30px;
   }
   
   .loading-circle .spinner {
     width: 20px;
     height: 20px;
-    border: 2px solid #f3f3f3;
-    border-top: 2px solid #3498db;
+    border: 2px solid rgba(255, 255, 255, 0.3);  /* Lighter border */
+    border-top: 2px solid white;  /* White spinner */
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }

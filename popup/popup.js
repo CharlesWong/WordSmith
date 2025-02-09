@@ -1,16 +1,18 @@
-// Load saved preferences
-chrome.storage.sync.get(['style', 'tone'], (prefs) => {
-  document.getElementById('style').value = prefs.style || 'formal';
-  document.getElementById('tone').value = prefs.tone || 'neutral';
+// Load saved preferences from local storage using the "grammarSettings" key
+chrome.storage.local.get(['grammarSettings'], (result) => {
+  const settings = result.grammarSettings || { style: 'formal', tone: 'neutral' };
+  document.getElementById('style').value = settings.style;
+  document.getElementById('tone').value = settings.tone;
 });
 
-// Save preferences
+// Save preferences on change using updateSettings
 document.querySelectorAll('select').forEach(select => {
   select.addEventListener('change', () => {
-    chrome.storage.sync.set({
+    const newSettings = {
       style: document.getElementById('style').value,
       tone: document.getElementById('tone').value
-    });
+    };
+    updateSettings(newSettings);
   });
 });
 
@@ -39,4 +41,19 @@ function checkConnection() {
 document.getElementById('reconnect').addEventListener('click', checkConnection);
 
 // Check connection on popup open
-checkConnection(); 
+checkConnection();
+
+// When settings change
+function updateSettings(newSettings) {
+  chrome.storage.local.set({ grammarSettings: newSettings }, () => {
+    // Notify content script of settings change
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, {
+          type: 'settingsUpdated',
+          settings: newSettings
+        });
+      }
+    });
+  });
+} 

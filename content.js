@@ -1,6 +1,15 @@
+// Add at the top of content.js
+const DEFAULT_SETTINGS = {
+  style: 'formal',
+  tone: 'neutral'
+};
+
 // Debug logging controlled by environment
 class GrammarChecker {
   constructor(config = {}) {
+    // Add settings property
+    this.settings = DEFAULT_SETTINGS;
+    this.loadSettings();
     // Initialize debug mode
     this.DEBUG_MODE = localStorage.getItem('DEBUG_GRAMMAR_CHECK') === 'true';
     console.log('Initializing GrammarChecker...', config);
@@ -10,17 +19,29 @@ class GrammarChecker {
     this.loadingCircle = this.createLoadingCircle();  
     this.setupProviders();
     
-    // Change this line - store as private property instead of trying to set the getter
     this._textInputSelector = 'textarea, input[type="text"], [contenteditable="true"]';
     
     this.init();
     this.debounceTimeout = null;
-    this.lastAnalyzedText = '';  // Track last analyzed text
-    this.maxRetries = 3;  // Maximum number of retry attempts
-    this.retryDelay = 1000;  // Delay between retries in ms
+    this.lastAnalyzedText = '';
+    this.maxRetries = 3;
+    this.retryDelay = 1000;
 
     // Add document click handler
     document.addEventListener('click', this.handleDocumentClick);
+
+    // Add settings update listener
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'settingsUpdated') {
+        console.log('Settings updated:', message.settings);
+        this.settings = message.settings;
+        // Always update the suggestion box header (even if there are no current suggestions)
+        if (this.suggestionBox) {
+          const suggestions = this.lastSuggestions || { grammar: [], style: [], tone: [] };
+          this.prepareSuggestionBox(suggestions);
+        }
+      }
+    });
   }
 
   // Change the getter to use the private property
@@ -84,81 +105,33 @@ class GrammarChecker {
     circle.id = "loading-circle";
     circle.className = "loading-circle";
     
-    // Add styles for the circle and its contents
-    const style = document.createElement('style');
-    style.textContent = `
-        .loading-circle {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background: #ffffff;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        .loading-circle:hover {
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            transform: translateY(-1px);
-        }
-        .loading-circle .circle-content {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .loading-circle .spinner {
-            width: 16px;
-            height: 16px;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        .loading-circle .count {
-            font-size: 12px;
-            font-weight: bold;
-            color: #3498db;
-            text-align: center;
-            line-height: 24px;
-            width: 100%;
-            height: 100%;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    `;
-    document.head.appendChild(style);
-    
     circle.innerHTML = `
-        <div class="circle-content">
-            <div class="spinner"></div>
-            <div class="count" style="display: none;"></div>
-        </div>
+      <div class="circle-content">
+        <div class="spinner"></div>
+        <div class="count" style="display: none;">0</div>
+      </div>
     `;
     
+    // Set initial styles
     circle.style.position = 'fixed';
     circle.style.zIndex = '10000';
     circle.style.display = 'none';
+    circle.style.opacity = '0';
+    circle.style.transition = 'opacity 0.3s ease';
     
-    // Add hover behavior
-    circle.addEventListener('mouseenter', () => {
-        if (this.lastSuggestions) {
-            this.showSuggestionBox(this.lastSuggestions);
-        }
+    // Add click and hover handlers
+    circle.addEventListener('click', () => {
+      if (this.suggestionBox.style.display === 'none') {
+        this.showSuggestionBox();
+      } else {
+        this.hideSuggestionBox();
+      }
     });
     
-    circle.addEventListener('mouseleave', (e) => {
-        const box = this.suggestionBox;
-        const boxRect = box.getBoundingClientRect();
-        if (!(e.clientX >= boxRect.left && e.clientX <= boxRect.right && 
-              e.clientY >= boxRect.top && e.clientY <= boxRect.bottom)) {
-            this.hideSuggestionBox();
-        }
+    circle.addEventListener('mouseenter', () => {
+      if (this.lastSuggestions && this.suggestionBox.style.display === 'none') {
+        this.showSuggestionBox();
+      }
     });
     
     document.body.appendChild(circle);
@@ -386,83 +359,37 @@ Please provide suggestions in the following JSON format:
   async checkGrammar(text) {
     if (!text.trim()) return [];
 
-    let attempts = 0;
-    while (attempts < this.maxRetries) {
-      try {
-        // Show loading circle
-        if (this.loadingCircle) {
-          const selection = window.getSelection();
-          const range = selection.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          
-          this.loadingCircle.querySelector('.spinner').style.display = 'block';
-          this.loadingCircle.querySelector('.count').style.display = 'none';
-          this.loadingCircle.style.top = `${rect.top + window.scrollY - 30}px`;
-          this.loadingCircle.style.left = `${rect.right + window.scrollX + 10}px`;
-          this.loadingCircle.style.display = 'flex';
-          this.loadingCircle.style.opacity = '1';
-        }
-
-        // Get suggestions (now includes deduplication in background)
-        const response = await new Promise((resolve, reject) => {
-          chrome.runtime.sendMessage({
-            action: 'analyze',
-            text: text,
-            preferences: {
-              style: 'formal',
-              tone: 'neutral'
-            }
-          }, (response) => {
-            if (chrome.runtime.lastError) {
-              reject(chrome.runtime.lastError);
-              return;
-            }
-            resolve(response);
-          });
-        });
-
-        if (!response || !response.success) {
-          throw new Error(response?.error || 'Analysis failed');
-        }
-
-        if (!response.suggestions) {
-          return [];
-        }
-
-        // Update circle to show suggestion count
-        if (this.loadingCircle) {
-          const totalSuggestions = Object.values(response.suggestions)
-            .reduce((sum, arr) => sum + arr.length, 0);
-          
-          if (totalSuggestions > 0) {
-            const spinner = this.loadingCircle.querySelector('.spinner');
-            const count = this.loadingCircle.querySelector('.count');
-            
-            spinner.style.display = 'none';
-            count.textContent = totalSuggestions;
-            count.style.display = 'block';
-            
-            this.lastSuggestions = response.suggestions;
-          } else {
-            this.loadingCircle.style.opacity = '0';
-            setTimeout(() => {
-              this.loadingCircle.style.display = 'none';
-            }, 300);
+    try {
+      // Ensure the latest settings are loaded before analyzing
+      await this.loadSettings();
+      
+      // Clear previous suggestions
+      this.clearSuggestions();
+      
+      // Get suggestions
+      const response = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          action: 'analyze',
+          text: text,
+          preferences: this.settings
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+            return;
           }
-        }
+          resolve(response);
+        });
+      });
 
-        return response.suggestions;
-      } catch (error) {
-        console.error(`Attempt ${attempts + 1} failed:`, error);
-        attempts++;
-        
-        if (attempts < this.maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, this.retryDelay));
-        }
+      if (!response || !response.success) {
+        throw new Error(response?.error || 'Analysis failed');
       }
-    }
 
-    return [];
+      return response.suggestions || [];
+    } catch (error) {
+      console.error('Grammar check failed:', error);
+      return [];
+    }
   }
 
   // UI Updates
@@ -563,137 +490,80 @@ Please provide suggestions in the following JSON format:
 
   // Update the prepareSuggestionBox method
   prepareSuggestionBox(suggestions) {
-    // Clear previous suggestions
+    // Clear the suggestion box content
     this.suggestionBox.innerHTML = '';
 
-    // Add styles for the suggestion box content
-    const style = document.createElement('style');
-    style.textContent = `
-      .suggestion-category {
-        font-weight: bold;
-        padding: 8px;
-        margin-top: 8px;
-        color: #2d3748;
-        border-bottom: 1px solid #e2e8f0;
-      }
-      .suggestion {
-        padding: 12px;
-        border-bottom: 1px solid #e2e8f0;
-      }
-      .suggestion:last-child {
-        border-bottom: none;
-      }
-      .suggestion-content {
-        margin-bottom: 8px;
-      }
-      .suggestion-main {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 4px;
-      }
-      .original {
-        color: #e53e3e;
-        text-decoration: line-through;
-      }
-      .arrow {
-        color: #718096;
-      }
-      .correction {
-        color: #38a169;
-        font-weight: 500;
-      }
-      .explanation {
-        font-size: 0.9em;
-        color: #718096;
-        font-style: italic;
-        margin-top: 4px;
-      }
-      .apply-btn {
-        padding: 4px 12px;
-        background: #3182ce;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-        transition: all 0.2s;
-      }
-      .apply-btn:hover {
-        background: #2c5282;
-      }
+    // Always add the header with current style and tone settings
+    const prefsHeader = document.createElement('div');
+    prefsHeader.className = 'preferences-header';
+    prefsHeader.innerHTML = `
+      <div class="current-preferences">
+        <span class="pref-label">Style: <span class="pref-value">${this.settings.style}</span></span>
+        <span class="pref-label">Tone: <span class="pref-value">${this.settings.tone}</span></span>
+      </div>
     `;
-    document.head.appendChild(style);
+    this.suggestionBox.appendChild(prefsHeader);
 
-    // Add suggestions by category
-    Object.entries(suggestions).forEach(([category, categorySuggestions]) => {
-      if (categorySuggestions.length === 0) return;
+    // Flag to check if we have any suggestion
+    let hasSuggestions = false;
 
-      // Add category header
-      const header = document.createElement('div');
-      header.className = 'suggestion-category';
-      header.textContent = category.charAt(0).toUpperCase() + category.slice(1);
-      this.suggestionBox.appendChild(header);
+    // Append suggestions for each category
+    Object.keys(suggestions).forEach(category => {
+      if (suggestions[category].length > 0) {
+        hasSuggestions = true;
 
-      // Add suggestions
-      categorySuggestions.forEach(suggestion => {
-        const suggestionDiv = document.createElement('div');
-        suggestionDiv.className = 'suggestion';
-        
-        // Create suggestion content with original text, arrow, and correction
-        const content = document.createElement('div');
-        content.className = 'suggestion-content';
-        
-        const mainContent = document.createElement('div');
-        mainContent.className = 'suggestion-main';
-        mainContent.innerHTML = `
-          <span class="original">${suggestion.text}</span>
-          <span class="arrow">→</span>
-          <span class="correction">${suggestion.suggestion}</span>
-        `;
-        content.appendChild(mainContent);
+        // Create and append category header
+        const header = document.createElement('div');
+        header.className = 'suggestion-category';
+        header.textContent = category.charAt(0).toUpperCase() + category.slice(1) + ' Suggestions';
+        this.suggestionBox.appendChild(header);
 
-        // Add explanation if present
-        if (suggestion.explanation) {
-          const explanation = document.createElement('div');
-          explanation.className = 'explanation';
-          explanation.textContent = suggestion.explanation;
-          content.appendChild(explanation);
-        }
-
-        suggestionDiv.appendChild(content);
-
-        // Add apply button
-        const applyBtn = document.createElement('button');
-        applyBtn.className = 'apply-btn';
-        applyBtn.textContent = 'Apply';
-        applyBtn.addEventListener('click', () => {
-          this.applySuggestion(this.lastTarget, suggestion);
-          this.hideSuggestionBox();
+        // Append each suggestion item
+        suggestions[category].forEach(sugg => {
+          const item = document.createElement('div');
+          item.className = `suggestion-item ${category}-error`;
+          item.innerHTML = `
+            <div class="suggestion-content">
+              <div class="original">${sugg.text}</div>
+              <div class="arrow">→</div>
+              <div class="correction">${sugg.suggestion}</div>
+              <div class="explanation-text">${sugg.explanation || ''}</div>
+            </div>
+            <button class="apply-suggestion">Apply</button>
+          `;
+          
+          // Attach apply event
+          item.querySelector('.apply-suggestion').addEventListener('click', () => {
+            this.applySuggestion(this.lastTarget, sugg);
+          });
+          
+          this.suggestionBox.appendChild(item);
         });
-        suggestionDiv.appendChild(applyBtn);
-
-        this.suggestionBox.appendChild(suggestionDiv);
-      });
+      }
     });
 
-    // Add hover behavior
-    this.suggestionBox.onmouseenter = () => {
-      this.suggestionBox.style.display = 'block';
-      this.suggestionBox.classList.add('visible');
-    };
-
-    this.suggestionBox.onmouseleave = () => {
-      this.hideSuggestionBox();
-    };
+    // If no suggestions exist, optionally add a placeholder message
+    if (!hasSuggestions) {
+      const noContent = document.createElement('div');
+      noContent.className = 'no-suggestions';
+      noContent.textContent = 'No suggestions found.';
+      this.suggestionBox.appendChild(noContent);
+    }
   }
 
-  // Add method to show suggestion box
-  showSuggestionBox(suggestions) {
-    this.suggestionBox.style.display = 'block';
-    setTimeout(() => {
+  // Update the showSuggestionBox method
+  showSuggestionBox() {
+    if (this.lastSuggestions) {
+      const cursorPos = this.getCursorPosition(this.lastTarget);
+      this.updateSuggestionBoxPosition(this.lastTarget, cursorPos);
+      
+      this.suggestionBox.style.display = 'block';
+      this.prepareSuggestionBox(this.lastSuggestions);
+      
+      setTimeout(() => {
         this.suggestionBox.classList.add('visible');
-    }, 10);
+      }, 10);
+    }
   }
 
   // Add method to hide suggestion box
@@ -705,45 +575,36 @@ Please provide suggestions in the following JSON format:
   }
 
   // Event Handlers
-  handleInput = async (event) => {
-    console.log('Input event triggered on:', event.target);
-    const text = event.target.value || event.target.innerText;
+  handleInput = (event) => {
+    const target = event.target;
+    const text = target.value || target.innerText;
     
-    // If text hasn't changed, don't make a new request
-    if (text === this.lastAnalyzedText) {
-        return;
+    // Skip processing for delete/backspace to allow normal text deletion
+    if (event.inputType === 'deleteContentBackward' || event.inputType === 'deleteContentForward') {
+      // Clear any existing suggestions when text is deleted
+      this.clearSuggestions();
+      return;
     }
 
-    // Clear previous timeout
-    if (this.debounceTimeout) {
-        clearTimeout(this.debounceTimeout);
+    // Skip if text is too short
+    if (!text || text.length < 3) {
+      this.clearSuggestions();
+      return;
     }
 
-    // Set new timeout for grammar check
-    this.debounceTimeout = setTimeout(async () => {
-        try {
-            // Show loading state
-            this.updateCircleState('loading');
-            const circle = document.getElementById('suggestion-circle');
-            if (circle) {
-                circle.style.display = 'flex';
-                circle.style.opacity = '1';
-                const cursorPos = this.getCursorPosition(event.target);
-                this.updateSuggestionBoxPosition(event.target, cursorPos);
-            }
-
-            // Get suggestions
-            const suggestions = await this.checkGrammar(text);
-            if (suggestions) {
-                this.lastAnalyzedText = text;
-                await this.updateSuggestions(event.target, suggestions);
-            }
-        } catch (error) {
-            console.error('Error in handleInput:', error);
-            this.updateCircleState('no-suggestions');
-        }
-    }, 1000);
-  }
+    // Debounce the grammar check
+    this.debounce(async () => {
+      // Skip if text hasn't changed
+      if (text === this.lastAnalyzedText) return;
+      
+      const suggestions = await this.checkGrammar(text);
+      if (suggestions) {
+        this.lastAnalyzedText = text;
+        this.lastSuggestions = suggestions;
+        this.updateSuggestions(target, suggestions);
+      }
+    }, 500);
+  };
 
   handleFocus = async (event) => {
     console.log('Focus event triggered on:', event.target);
@@ -830,31 +691,32 @@ Please provide suggestions in the following JSON format:
 
   // Initialization
   init() {
-    console.log('Initializing...');
+    console.log('Initializing grammar checker...');
     try {
+      // Load settings first
+      this.loadSettings().then(() => {
         // Find all text input elements
         const textElements = document.querySelectorAll(this.textInputSelector);
         console.log('Found text elements:', textElements.length);
         
         // Attach listeners to each element
         textElements.forEach(el => {
-            this.attachListeners(el);
-            
-            // Initial check if element has content
-            const text = el.value || el.innerText;
-            if (text && text.trim()) {
-                // Trigger input event to start analysis
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-            }
+          console.log('Attaching listeners to:', el);
+          // Remove existing listeners first
+          el.removeEventListener('input', this.handleInput);
+          
+          // Add input listener
+          el.addEventListener('input', this.handleInput);
         });
 
         // Start observing DOM changes
         this.observeDOM();
 
         console.log('Initialization complete');
+      });
     } catch (error) {
-        console.error('Initialization failed:', error);
-        setTimeout(() => this.init(), 2000);
+      console.error('Initialization failed:', error);
+      setTimeout(() => this.init(), 2000);
     }
   }
 
@@ -907,46 +769,56 @@ Please provide suggestions in the following JSON format:
 
   // Update applySuggestion method
   applySuggestion(target, suggestion) {
-    const text = target.value || target.innerText;
-    if (suggestion.position) {
-        // If we have position information, replace just that part
-        const newText = text.substring(0, suggestion.position.start) +
-                        suggestion.suggestion +
-                        text.substring(suggestion.position.end);
-        if (target.value !== undefined) {
-            target.value = newText;
-        } else {
-            target.innerText = newText;
-        }
+    if (!target) {
+      console.error("No target element available for applying suggestion.");
+      return;
+    }
+    
+    // Determine if target is input/textarea or contenteditable element
+    let originalContent = "";
+    if (target.value !== undefined) {
+      originalContent = target.value;
+    } else if (target.isContentEditable) {
+      originalContent = target.innerText;
     } else {
-        // If no position, try to find and replace the text
-        const regex = new RegExp(suggestion.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-        const newText = text.replace(regex, suggestion.suggestion || '');
-        if (target.value !== undefined) {
-            target.value = newText;
-        } else {
-            target.innerText = newText;
-        }
+      originalContent = target.innerText;
     }
 
-    // Hide suggestion box
-    this.suggestionBox.classList.remove('visible');
-    setTimeout(() => {
-        this.suggestionBox.style.display = "none";
-    }, 300);
+    // Debug log the original content and suggestion
+    console.log("Before applying suggestion:", { originalContent, suggestion });
 
-    // Show loading state in circle
-    this.updateCircleState('loading');
+    // Strip quotes from both the text to find and the replacement
+    const textToFind = suggestion.text.replace(/^["']|["']$/g, '');
+    const replacement = suggestion.suggestion.replace(/^["']|["']$/g, '');
 
-    // Rerun the check after a short delay to let the text update
-    setTimeout(async () => {
-        try {
-            await this.updateSuggestions(target);
-        } catch (error) {
-            console.error('Error rechecking after applying suggestion:', error);
-            this.updateCircleState('no-suggestions');
-        }
-    }, 500);
+    // Ensure suggestion.text exists in the original content
+    if (originalContent.indexOf(textToFind) === -1) {
+      console.error("Suggestion text not found in target content.", {
+        suggestionText: textToFind,
+        originalContent
+      });
+      return;
+    }
+
+    // Replace suggestion.text with suggestion.suggestion (direct 1:1 replacement)
+    const newContent = originalContent.replace(textToFind, replacement);
+
+    // Update the target element's content accordingly
+    if (target.value !== undefined) {
+      target.value = newContent;
+    } else if (target.isContentEditable) {
+      target.innerText = newContent;
+    } else {
+      target.innerText = newContent;
+    }
+
+    // Dispatch an input event to notify any listeners of the change
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+
+    console.log("Applied suggestion:", suggestion, "\nNew content:", newContent);
+
+    // Hide the suggestion box after applying the suggestion
+    this.hideSuggestionBox();
   }
 
   // Add debounce method
@@ -1096,13 +968,12 @@ Please provide suggestions in the following JSON format:
 
   // Add document click handler
   handleDocumentClick = (event) => {
-    const circle = document.getElementById('suggestion-circle');
+    const circle = this.loadingCircle;
     const box = this.suggestionBox;
     
-    // Check if click is outside both circle and box
+    // Only hide if click is outside both circle and box
     if (!circle?.contains(event.target) && !box?.contains(event.target)) {
-        // Hide both circle and box
-        this.hideUI();
+      this.hideSuggestionBox();
     }
   }
 
@@ -1122,6 +993,64 @@ Please provide suggestions in the following JSON format:
             circle.style.display = 'none';
         }, 300);
     }
+  }
+
+  // Add new helper method to clear suggestions
+  clearSuggestions() {
+    // Clear state
+    this.lastSuggestions = null;
+    
+    // Clear suggestion box content
+    if (this.suggestionBox) {
+      // Remove all existing categories and suggestions
+      this.suggestionBox.innerHTML = '';
+      
+      // If box is visible, show loading state
+      if (this.suggestionBox.classList.contains('visible')) {
+        // Add loading message
+        const loadingMsg = document.createElement('div');
+        loadingMsg.className = 'suggestion-category';
+        loadingMsg.style.textAlign = 'center';
+        loadingMsg.style.color = '#718096';
+        loadingMsg.innerHTML = `
+          <div style="margin: 20px 0;">
+            <div>Checking text...</div>
+          </div>
+        `;
+        this.suggestionBox.appendChild(loadingMsg);
+      }
+    }
+  }
+
+  // Update loadSettings method
+  async loadSettings() {
+    try {
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'getSettings' }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error("Runtime error in loadSettings:", chrome.runtime.lastError.message);
+            // Fallback to default settings if there's an error (e.g. extension context invalidated)
+            return resolve({ success: false });
+          }
+          resolve(response);
+        });
+      });
+      if (response?.success) {
+        this.settings = response.settings;
+        console.log('Loaded settings:', this.settings);
+      } else {
+        console.warn('Using default settings');
+        this.settings = DEFAULT_SETTINGS;
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      this.settings = DEFAULT_SETTINGS;
+    }
+  }
+
+  // Update updateUI method
+  updateUI() {
+    // Implementation of updateUI method
   }
 }
 
@@ -1178,4 +1107,29 @@ chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'debug') {
         console.log('[Background Debug]:', message.message);
     }
+});
+
+// Save preferences and notify content script to update settings
+document.querySelectorAll('select').forEach(select => {
+  select.addEventListener('change', () => {
+    const newSettings = {
+      style: document.getElementById('style').value,
+      tone: document.getElementById('tone').value
+    };
+    // Save to local storage (grammarSettings)
+    chrome.storage.local.set({ grammarSettings: newSettings }, () => {
+      // Also update chrome.storage.sync if needed
+      chrome.storage.sync.set(newSettings);
+ 
+      // Notify content script of settings change
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            type: 'settingsUpdated',
+            settings: newSettings
+          });
+        }
+      });
+    });
+  });
 });
