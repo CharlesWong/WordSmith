@@ -74,4 +74,64 @@
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+#suggestion-box {
+  position: fixed;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+  min-width: 300px;
+  max-width: 400px;
+  z-index: 2147483646;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease;
+}
+
+#suggestion-box.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.suggestion-header {
+  font-weight: bold;
+  margin-bottom: 12px;
+  color: #2d3748;
+}
+
+.suggestion-content {
+  margin-top: 8px;
+}
+
+.suggestion-text {
+  background: #f7fafc;
+  padding: 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.changes-list {
+  margin: 8px 0;
+}
+
+.change-item {
+  margin: 4px 0;
+  color: #4a5568;
+}
+
+.apply-button {
+  background: #4299e1;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.apply-button:hover {
+  background: #3182ce;
 } 

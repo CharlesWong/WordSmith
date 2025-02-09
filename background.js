@@ -96,7 +96,7 @@ class OllamaService {
       }
 
       // Parse the initial suggestions
-      const parsedSuggestions = this.parseResponse(data.response);
+      const parsedSuggestions = await this.parseResponse(data.response);
       console.log('Initial parsed suggestions:', parsedSuggestions);
       
       // Second call to deduplicate suggestions
@@ -114,6 +114,9 @@ Rules:
 5. Maintain the exact same JSON structure
 6. Keep all original fields (text, suggestion, explanation)
 7. In the "suggestion" field, include ONLY the exact replacement text
+8. Remove any suggestions where text or suggestion is empty
+9. Remove any suggestions where text equals suggestion (no change)
+10. Ensure all suggestions have valid text and suggestion fields
 
 IMPORTANT: Your entire response must be valid JSON that matches this structure exactly. 
 Do not include any other text, explanations, or markdown.
@@ -136,6 +139,23 @@ The response should start with { and end with }.`,
       
       try {
         const deduplicated = JSON.parse(jsonStr);
+        // Filter out invalid suggestions
+        if (deduplicated.simple) {
+          deduplicated.simple = deduplicated.simple.filter(s => {
+            // Must have a valid suggestion
+            if (!s || !s.suggestion || s.suggestion.trim().length === 0) {
+              return false;
+            }
+            
+            // If text is empty, use the entire original text
+            if (!s.text || s.text.trim().length === 0) {
+              s.text = text.match(/Text:\s*"([^"]*)"/)?.[1] || '';
+            }
+            
+            // Don't filter out if text equals suggestion
+            return true;
+          });
+        }
         console.log('Deduplicated suggestions:', deduplicated);
         return deduplicated;
       } catch (error) {
@@ -153,7 +173,64 @@ The response should start with { and end with }.`,
     }
   }
 
-  parseResponse(text) {
+  async parseResponse(text) {
+    const settings = await this.getSettings();
+    if (settings.simpleMode) {
+      return this.parseSimpleModeResponse(text);
+    }
+    return this.parseAdvancedModeResponse(text);
+  }
+
+  parseSimpleModeResponse(text) {
+    console.log('Parsing simple mode response:', text);
+    const lines = text.split('\n');
+    let improvedVersion = '';
+    const keyChanges = [];
+    const originalText = text.match(/Text:\s*"([^"]*)"/)?.[1] || '';
+    let explanation = '';
+    
+    let parsingChanges = false;
+    let parsingReason = false;
+    
+    for (const line of lines) {
+      if (line.startsWith('Improved Version:')) {
+        // Extract text between quotes
+        const match = line.match(/Improved Version:\s*"([^"]*)"/);
+        improvedVersion = match ? match[1] : '';
+      } else if (line.startsWith('Key Changes:')) {
+        parsingChanges = true;
+        parsingReason = false;
+      } else if (line.startsWith('Reason:')) {
+        parsingChanges = false;
+        parsingReason = true;
+      } else if (parsingChanges && line.trim().startsWith('-')) {
+        const change = line.trim().substring(1).trim();
+        if (change.startsWith('Grammar:') || change.startsWith('Style:') || change.startsWith('Tone:')) {
+          keyChanges.push(change);
+        }
+      } else if (parsingReason) {
+        explanation += line.trim() + ' ';
+      }
+    }
+    
+    console.log('Parsed result:', {
+      originalText,
+      improvedVersion,
+      keyChanges,
+      explanation: explanation.trim()
+    });
+    
+    return {
+      simple: [{
+        text: originalText,
+        suggestion: improvedVersion,
+        changes: keyChanges,
+        explanation: explanation.trim()
+      }]
+    };
+  }
+
+  parseAdvancedModeResponse(text) {
     // Log the raw response from Ollama for debugging
     console.log("Raw response from Ollama:", text);
     
@@ -234,6 +311,49 @@ The response should start with { and end with }.`,
   }
 
   async createAnalysisPrompt(text, preferences) {
+    if (preferences.simpleMode) {
+      return this.createSimpleModePrompt(text, preferences);
+    }
+    return this.createAdvancedModePrompt(text, preferences);
+  }
+
+  async createSimpleModePrompt(text, preferences) {
+    const prompt = `As a professional writing assistant, improve the following text by combining grammar corrections, style adjustments (${preferences.style}), and tone refinements (${preferences.tone}) into a single, cohesive suggestion.
+
+Text: "${text}"
+
+Rules:
+1. Provide ONE improved version that incorporates all necessary changes
+2. Focus on making the text more polished while maintaining its core message
+3. Apply grammar fixes, style improvements, and tone adjustments simultaneously
+4. Explain the key improvements made
+
+Format your response exactly like this:
+
+-Improved Version: [complete improved text]
+-Key Changes:
+-- [brief point about grammar fix]
+-- [brief point about style improvement]
+-- [brief point about tone adjustment]
+Original Text: "{{ exact text being replaced }}"
+Improved Version: "{{ improved text here }}"
+Key Changes:
+- Grammar: {{ brief point about grammar fix }}
+- Style: {{ brief point about style improvement }}
+- Tone: {{ brief point about tone adjustment }}
+
+IMPORTANT:
+1. Replace {{ }} placeholders with actual content
+2. Keep the exact format including "Original Text:" and "Improved Version:"
+3. In "Original Text:", include the exact portion of text being improved
+4. Include the quotes around both original and improved text
+5. Start each change with the exact category label (Grammar:, Style:, Tone:)
+6. Do not add any other text or explanations`;
+
+    return prompt;
+  }
+
+  async createAdvancedModePrompt(text, preferences) {
     // Get custom guides from storage
     const customGuides = await chrome.storage.local.get(['customGuides']);
     const customStyles = customGuides?.customGuides?.styles || {};

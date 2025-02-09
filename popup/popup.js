@@ -3,7 +3,8 @@ const DEFAULT_SETTINGS = {
   style: 'formal',
   tone: 'neutral',
   ollamaAddress: 'http://localhost:11434',
-  ollamaModel: 'llama2'
+  ollamaModel: 'llama2',
+  simpleMode: true  // Default to simple mode
 };
 
 // Load saved preferences from local storage using the "grammarSettings" key
@@ -13,6 +14,7 @@ chrome.storage.local.get(['grammarSettings'], (result) => {
   document.getElementById('tone').value = settings.tone;
   document.getElementById('ollamaAddress').value = settings.ollamaAddress;
   document.getElementById('ollamaModel').value = settings.ollamaModel;
+  document.getElementById('experienceMode').checked = !settings.simpleMode;
 });
 
 // Save preferences on change using updateSettings
@@ -184,16 +186,18 @@ document.getElementById('saveCustomTone').addEventListener('click', async () => 
 });
 
 // Save all settings when changed
-function saveSettings() {
+function saveSettings(additionalSettings = {}) {
   const newSettings = {
+    ...DEFAULT_SETTINGS,  // Start with defaults
     style: document.getElementById('style').value,
     tone: document.getElementById('tone').value,
     ollamaAddress: document.getElementById('ollamaAddress').value,
-    ollamaModel: document.getElementById('ollamaModel').value
+    ollamaModel: document.getElementById('ollamaModel').value,
+    ...additionalSettings  // Allow overriding with additional settings
   };
 
   chrome.storage.local.set({ grammarSettings: newSettings }, () => {
-    chrome.storage.sync.set(newSettings);
+    // Notify content script of settings change
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
         chrome.tabs.sendMessage(tabs[0].id, {
@@ -205,9 +209,11 @@ function saveSettings() {
   });
 }
 
-// Add change listeners to all inputs
+// Add event listeners for all settings changes
 document.querySelectorAll('select, input').forEach(element => {
-  element.addEventListener('change', saveSettings);
+  element.addEventListener('change', () => {
+    saveSettings();
+  });
 });
 
 // Test connection button
@@ -241,4 +247,9 @@ document.getElementById('testConnection').addEventListener('click', async () => 
     status.textContent = 'Connection failed: ' + error.message;
     status.className = 'error';
   }
+});
+
+// Add toggle handler
+document.getElementById('experienceMode').addEventListener('change', (event) => {
+  saveSettings({ simpleMode: !event.target.checked });
 }); 

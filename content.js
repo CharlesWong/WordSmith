@@ -1,7 +1,8 @@
 // Add at the top of content.js
 const DEFAULT_SETTINGS = {
   style: 'formal',
-  tone: 'neutral'
+  tone: 'neutral',
+  simpleMode: true  // Default to simple mode
 };
 
 // Debug logging controlled by environment
@@ -450,12 +451,16 @@ Please provide suggestions in the following JSON format:
 
   async updateSuggestions(target, suggestions) {
     this.lastTarget = target;
+    console.log('updateSuggestions received:', suggestions);
     
     if (!suggestions || Object.values(suggestions).every(arr => arr.length === 0)) {
       this.updateCircleState('no-suggestions');
       return;
     }
 
+    // Store suggestions for later use
+    this.lastSuggestions = suggestions;
+    
     // Count total suggestions
     const totalSuggestions = Object.values(suggestions).reduce((sum, arr) => sum + arr.length, 0);
     
@@ -466,17 +471,16 @@ Please provide suggestions in the following JSON format:
       circle.style.display = 'flex';
       circle.style.opacity = '1';
       
-      // Add hover handler to show/hide suggestion box
+      // Add hover handler to show suggestion box
       circle.onmouseenter = () => {
-        this.showSuggestionBox(suggestions);
+        this.showSuggestionBox();  // No need to pass suggestions, we have this.lastSuggestions
       };
       
-      circle.onmouseleave = (e) => {
-        // Check if mouse is moving to suggestion box
-        const box = this.suggestionBox;
-        const boxRect = box.getBoundingClientRect();
-        if (!(e.clientX >= boxRect.left && e.clientX <= boxRect.right && 
-              e.clientY >= boxRect.top && e.clientY <= boxRect.bottom)) {
+      // Add click handler to toggle suggestion box
+      circle.onclick = () => {
+        if (this.suggestionBox.style.display === 'none') {
+          this.showSuggestionBox();
+        } else {
           this.hideSuggestionBox();
         }
       };
@@ -490,10 +494,70 @@ Please provide suggestions in the following JSON format:
   }
 
   // Update the prepareSuggestionBox method
-  prepareSuggestionBox(suggestions) {
-    // Clear the suggestion box content
-    this.suggestionBox.innerHTML = '';
+  async prepareSuggestionBox(suggestions) {
+    const settings = await this.getSettings();
+    const box = this.suggestionBox;
+    box.innerHTML = '';
+    
+    if (settings.simpleMode) {
+      this.prepareSimpleModeBox(suggestions);
+    } else {
+      this.prepareAdvancedModeBox(suggestions);
+    }
+  }
 
+  prepareSimpleModeBox(suggestions) {
+    console.log('Preparing simple mode box with suggestions:', suggestions);
+    if (!suggestions?.simple?.[0]?.suggestion) {
+      console.log('No simple suggestions available');
+      return;
+    }
+    
+    const box = this.suggestionBox;
+    const suggestion = suggestions.simple[0];
+    console.log('Using suggestion:', suggestion);
+    
+    // Clear existing content
+    box.innerHTML = '';
+    
+    // Add preferences header like in advanced mode
+    const prefsHeader = document.createElement('div');
+    prefsHeader.className = 'preferences-header';
+    prefsHeader.innerHTML = `
+      <div class="current-preferences">
+        <span class="pref-label">Style: <span class="pref-value">${this.settings.style}</span></span>
+        <span class="pref-label">Tone: <span class="pref-value">${this.settings.tone}</span></span>
+      </div>
+    `;
+    box.appendChild(prefsHeader);
+    
+    // Create suggestion item
+    const item = document.createElement('div');
+    item.className = 'suggestion-item';
+    // Ensure changes array exists
+    const changes = suggestion.changes || [];
+    item.innerHTML = `
+      <div class="suggestion-content">
+        <div class="original">${suggestion.text || 'Full text'}</div>
+        <div class="arrow">→</div>
+        <div class="correction">${suggestion.suggestion}</div>
+        <div class="explanation-text">${suggestion.explanation || ''}</div>
+        <div class="changes-list">
+          ${changes.map(change => `<div class="change-item">• ${change}</div>`).join('')}
+        </div>
+      </div>
+      <button class="apply-suggestion">Apply</button>
+    `;
+    
+    item.querySelector('.apply-suggestion').addEventListener('click', () => {
+      this.applySuggestion(suggestion);
+    });
+    
+    box.appendChild(item);
+    console.log('Box content after preparation:', box.innerHTML);
+  }
+
+  prepareAdvancedModeBox(suggestions) {
     // Always add the header with current style and tone settings
     const prefsHeader = document.createElement('div');
     prefsHeader.className = 'preferences-header';
@@ -554,18 +618,22 @@ Please provide suggestions in the following JSON format:
 
   // Update the showSuggestionBox method
   showSuggestionBox() {
+    console.log('Showing suggestion box with suggestions:', this.lastSuggestions);
     if (this.lastSuggestions) {
       const cursorPos = this.getCursorPosition(this.lastTarget);
       this.updateSuggestionBoxPosition(this.lastTarget, cursorPos);
       
+      // First prepare content, then show box
+      this.prepareSuggestionBox(this.lastSuggestions);
+      
       this.suggestionBox.style.display = 'block';
       this.suggestionBox.setAttribute('role', 'dialog');
       this.suggestionBox.setAttribute('aria-label', 'Writing Suggestions');
-      this.prepareSuggestionBox(this.lastSuggestions);
       
+      // Add visible class after a short delay to ensure content is rendered
       setTimeout(() => {
         this.suggestionBox.classList.add('visible');
-      }, 10);
+      }, 50);
     }
   }
 
@@ -612,7 +680,11 @@ Please provide suggestions in the following JSON format:
   handleInput = (event) => {
     console.log('Input event triggered');
     const target = event.target;
-    this.lastTarget = target;  // Store the target for later use
+    this.lastTarget = target;
+    
+    // Hide suggestion box when user starts typing
+    this.hideSuggestionBox();
+    
     const text = target.value || target.innerText;
     
     // Skip processing for delete/backspace to allow normal text deletion
@@ -804,14 +876,15 @@ Please provide suggestions in the following JSON format:
   }
 
   // Update applySuggestion method
-  applySuggestion(target, suggestion) {
-    if (!target) {
+  applySuggestion(suggestion) {
+    if (!this.lastTarget) {
       console.error("No target element available for applying suggestion.");
       return;
     }
     
-    // Determine if target is input/textarea or contenteditable element
+    const target = this.lastTarget;
     let originalContent = "";
+    
     if (target.value !== undefined) {
       originalContent = target.value;
     } else if (target.isContentEditable) {
@@ -820,14 +893,16 @@ Please provide suggestions in the following JSON format:
       originalContent = target.innerText;
     }
 
-    // Debug log the original content and suggestion
-    console.log("Before applying suggestion:", { originalContent, suggestion });
-
     // Strip quotes from both the text to find and the replacement
     const textToFind = suggestion.text.replace(/^["']|["']$/g, '');
     const replacement = suggestion.suggestion.replace(/^["']|["']$/g, '');
 
-    // Ensure suggestion.text exists in the original content
+    console.log('Applying suggestion:', {
+      originalContent,
+      textToFind,
+      replacement
+    });
+
     if (originalContent.indexOf(textToFind) === -1) {
       console.error("Suggestion text not found in target content.", {
         suggestionText: textToFind,
@@ -836,10 +911,8 @@ Please provide suggestions in the following JSON format:
       return;
     }
 
-    // Replace suggestion.text with suggestion.suggestion (direct 1:1 replacement)
     const newContent = originalContent.replace(textToFind, replacement);
-
-    // Update the target element's content accordingly
+    
     if (target.value !== undefined) {
       target.value = newContent;
     } else if (target.isContentEditable) {
@@ -848,12 +921,7 @@ Please provide suggestions in the following JSON format:
       target.innerText = newContent;
     }
 
-    // Dispatch an input event to notify any listeners of the change
     target.dispatchEvent(new Event('input', { bubbles: true }));
-
-    console.log("Applied suggestion:", suggestion, "\nNew content:", newContent);
-
-    // Hide the suggestion box after applying the suggestion
     this.hideSuggestionBox();
   }
 
@@ -1003,13 +1071,15 @@ Please provide suggestions in the following JSON format:
     return position;
   }
 
-  // Add document click handler
+  // Update document click handler
   handleDocumentClick = (event) => {
     const circle = this.loadingCircle;
     const box = this.suggestionBox;
     
-    // Only hide if click is outside both circle and box
-    if (!circle?.contains(event.target) && !box?.contains(event.target)) {
+    // Hide if click is outside both circle and box, and not on the input
+    if (!circle?.contains(event.target) && 
+        !box?.contains(event.target) && 
+        event.target !== this.lastTarget) {
       this.hideSuggestionBox();
     }
   }
@@ -1068,6 +1138,27 @@ Please provide suggestions in the following JSON format:
   // Update updateUI method
   updateUI() {
     // Implementation of updateUI method
+  }
+
+  // Add getSettings method
+  async getSettings() {
+    try {
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'getSettings' }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error("Runtime error in getSettings:", chrome.runtime.lastError.message);
+            resolve({ success: false });
+            return;
+          }
+          resolve(response);
+        });
+      });
+      
+      return response?.success ? response.settings : DEFAULT_SETTINGS;
+    } catch (error) {
+      console.error('Error getting settings:', error);
+      return DEFAULT_SETTINGS;
+    }
   }
 }
 
