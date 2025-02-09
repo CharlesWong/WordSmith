@@ -101,7 +101,7 @@ class OllamaService {
       // First call to get initial suggestions
       const data = await this.callOllama({
         model: DEFAULT_MODEL,
-        prompt: this.createAnalysisPrompt(text, settings),
+        prompt: await this.createAnalysisPrompt(text, settings),
         stream: false,
         options: { temperature: 0.2 }
       });
@@ -143,13 +143,25 @@ The response should start with { and end with }.`,
 
       // Clean and parse the deduplicated response
       let jsonStr = dedupeData.response.trim();
+      // Remove any control characters and escape sequences
+      jsonStr = jsonStr.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+                      .replace(/\\[^"\/bfnrtu]/g, '');
       jsonStr = jsonStr.substring(jsonStr.indexOf('{'));
       jsonStr = jsonStr.substring(0, jsonStr.lastIndexOf('}') + 1);
       
-      const deduplicated = JSON.parse(jsonStr);
-      console.log('Deduplicated suggestions:', deduplicated);
-      
-      return deduplicated;
+      try {
+        const deduplicated = JSON.parse(jsonStr);
+        console.log('Deduplicated suggestions:', deduplicated);
+        return deduplicated;
+      } catch (error) {
+        console.error('Failed to parse JSON:', {
+          error,
+          rawResponse: dedupeData.response,
+          cleanedJson: jsonStr
+        });
+        // Return empty suggestions if parsing fails
+        return { grammar: [], style: [], tone: [] };
+      }
     } catch (error) {
       console.error('Error in getSuggestions:', error);
       throw error;
@@ -236,7 +248,12 @@ The response should start with { and end with }.`,
     return categories;
   }
 
-  createAnalysisPrompt(text, preferences) {
+  async createAnalysisPrompt(text, preferences) {
+    // Get custom guides from storage
+    const customGuides = await chrome.storage.local.get(['customGuides']);
+    const customStyles = customGuides?.customGuides?.styles || {};
+    const customTones = customGuides?.customGuides?.tones || {};
+
     // Style guide mapping
     const styleGuides = {
       formal: `- Use professional and formal vocabulary
@@ -258,7 +275,8 @@ The response should start with { and end with }.`,
  - Employ literary devices such as metaphors and similes
  - Experiment with sentence structure and rhythm
  - Evoke emotions and paint visual imagery with words
- - Allow for imaginative and expressive wording`
+ - Allow for imaginative and expressive wording`,
+      ...customStyles  // Add custom style guides
     };
 
     // Tone guide mapping
@@ -282,7 +300,8 @@ The response should start with { and end with }.`,
  - Acknowledge and validate the reader's emotions
  - Be supportive and encouraging without being patronizing
  - Employ gentle, soft language to convey care
- - Strike a balance between warmth and professionalism`
+ - Strike a balance between warmth and professionalism`,
+      ...customTones  // Add custom tone guides
     };
 
     const prompt = `As a professional writing assistant, analyze the following text and suggest improvements in three distinct categories:
@@ -439,6 +458,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true;
   }
+
+  if (request.action === 'generateGuide') {
+    generateGuide(request.type, request.name, request.description)
+      .then(response => {
+        sendResponse(response);
+      })
+      .catch(error => {
+        sendResponse({ success: false, error: error.message });
+      });
+    return true;
+  }
 });
 
 // Log startup with timestamp
@@ -472,4 +502,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     return true; // Keep the message channel open
   }
-}); 
+});
+
+// Add handler for generating custom guides
+async function generateGuide(type, name, description) {
+  const prompt = `As a writing assistant, create a detailed guide for ${type === 'style' ? 'writing style' : 'tone'} based on this description:
+
+"${description}"
+
+Generate a list of 4-6 specific guidelines that define this ${type}, formatted as bullet points. Each guideline should be clear and actionable.
+
+Format the response as bullet points only, no additional text.`;
+
+  try {
+    const response = await callOllama({
+      model: DEFAULT_MODEL,
+      prompt: prompt,
+      stream: false,
+      options: { temperature: 0.7 }
+    });
+
+    return {
+      success: true,
+      guide: response.response.trim()
+    };
+  } catch (error) {
+    console.error('Error generating guide:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+} 

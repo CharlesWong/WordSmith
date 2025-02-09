@@ -1,0 +1,77 @@
+.suggestion-circle {
+  position: fixed;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  z-index: 2147483647;  /* Maximum z-index value */
+  transition: background-color 0.3s ease;
+  opacity: 1;
+  visibility: visible;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  outline: none;
+  pointer-events: auto;
+  margin: 0;
+  padding: 0;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.suggestion-circle:focus-visible {
+  outline: 2px solid #4299e1;
+  outline-offset: 2px;
+}
+
+.suggestion-circle:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Circle states */
+.suggestion-circle.loading {
+  background: #9F7AEA;  /* Bright purple for loading state */
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: flex !important;
+}
+
+.suggestion-circle.has-suggestions {
+  background: #F56565;  /* Bright red for suggestions available */
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: flex !important;
+}
+
+.suggestion-circle.no-suggestions {
+  background: #38B2AC;  /* Bright teal for no suggestions */
+  opacity: 0;
+  visibility: hidden;
+}
+
+.circle-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-top: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+} 

@@ -21,6 +21,16 @@ class GrammarChecker {
     
     this._textInputSelector = 'textarea, input[type="text"], [contenteditable="true"]';
     
+    // Add spin animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+    
     this.init();
     this.debounceTimeout = null;
     this.lastAnalyzedText = '';
@@ -63,76 +73,40 @@ class GrammarChecker {
     box.style.display = "none";
     document.body.appendChild(box);
 
-    // Create indicator circle
-    const circle = document.createElement("div");
-    circle.id = "suggestion-circle";
-    circle.className = "suggestion-circle";
-    circle.innerHTML = '<div class="circle-content">0</div>';
-    document.body.appendChild(circle);
-
-    // Add hover handler to circle
-    circle.addEventListener('mouseenter', () => {
-      if (box.style.display === "none" && this.lastTarget) {
-        box.style.display = "block";
-        box.classList.add('visible');
-        this.updateSuggestionBoxPosition(this.lastTarget);
-      }
-    });
-
-    // Add click handler to circle (keep this for mobile devices)
-    circle.addEventListener('click', () => {
-      if (box.style.display === "none") {
-        box.style.display = "block";
-        box.classList.add('visible');
-        this.updateSuggestionBoxPosition(this.lastTarget);
-      } else {
-        box.classList.remove('visible');
-        setTimeout(() => {
-          box.style.display = "none";
-        }, 300);
-      }
-    });
-
-    // Add intersection observer to hide circle when target is not visible
-    this.setupVisibilityObserver();
-
     return box;
   }
 
-  // Replace createSuggestionCircle with createLoadingCircle
+  // Create loading circle
   createLoadingCircle() {
-    const circle = document.createElement("div");
-    circle.id = "loading-circle";
-    circle.className = "loading-circle";
+    console.log('Creating loading circle');
+    const circle = document.createElement('div');
+    circle.id = 'suggestion-circle';
+    circle.className = 'suggestion-circle';
+    // Set initial styles directly
+    const styles = {
+      display: 'flex',
+      position: 'fixed',
+      width: '32px',
+      height: '32px',
+      borderRadius: '50%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#9F7AEA',  // Default color
+      boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+      zIndex: '2147483647'
+    };
+    Object.assign(circle.style, styles);
     
-    circle.innerHTML = `
-      <div class="circle-content">
-        <div class="spinner"></div>
-        <div class="count" style="display: none;">0</div>
-      </div>
-    `;
-    
-    // Set initial styles
-    circle.style.position = 'fixed';
-    circle.style.zIndex = '10000';
-    circle.style.display = 'none';
-    circle.style.opacity = '0';
-    circle.style.transition = 'opacity 0.3s ease';
-    
-    // Add click and hover handlers
-    circle.addEventListener('click', () => {
-      if (this.suggestionBox.style.display === 'none') {
-        this.showSuggestionBox();
-      } else {
-        this.hideSuggestionBox();
-      }
-    });
-    
-    circle.addEventListener('mouseenter', () => {
-      if (this.lastSuggestions && this.suggestionBox.style.display === 'none') {
-        this.showSuggestionBox();
-      }
-    });
+    const content = document.createElement('div');
+    content.className = 'circle-content';
+    content.style.display = 'flex';
+    content.style.alignItems = 'center';
+    content.style.justifyContent = 'center';
+    content.style.width = '100%';
+    content.style.height = '100%';
+    content.style.color = 'white';
+    content.setAttribute('aria-label', 'Writing suggestions');
+    circle.appendChild(content);
     
     document.body.appendChild(circle);
     return circle;
@@ -360,11 +334,26 @@ Please provide suggestions in the following JSON format:
     if (!text.trim()) return [];
 
     try {
-      // Ensure the latest settings are loaded before analyzing
       await this.loadSettings();
-      
-      // Clear previous suggestions
       this.clearSuggestions();
+      
+      // Position and show loading circle near the current input
+      if (this.lastTarget) {
+        const rect = this.lastTarget.getBoundingClientRect();
+        const circle = document.getElementById('suggestion-circle');
+        if (circle) {
+          circle.style.position = 'fixed';
+          circle.style.top = `${rect.top + window.scrollY + 5}px`;
+          circle.style.left = `${rect.right + window.scrollX + 5}px`;
+          circle.style.removeProperty("right");  // Remove any previously set right value
+          circle.style.display = 'flex';
+          circle.style.visibility = 'visible';
+          circle.style.opacity = '1';
+        }
+      }
+      
+      // Show loading circle
+      this.updateCircleState('loading');
       
       // Get suggestions
       const response = await new Promise((resolve, reject) => {
@@ -385,9 +374,21 @@ Please provide suggestions in the following JSON format:
         throw new Error(response?.error || 'Analysis failed');
       }
 
+      // Update circle with suggestions count
+      const suggestions = response.suggestions;
+      const totalSuggestions = Object.values(suggestions)
+        .reduce((sum, arr) => sum + arr.length, 0);
+      
+      if (totalSuggestions > 0) {
+        this.updateCircleState('has-suggestions', totalSuggestions);
+      } else {
+        this.updateCircleState('no-suggestions');
+      }
+
       return response.suggestions || [];
     } catch (error) {
       console.error('Grammar check failed:', error);
+      this.updateCircleState('no-suggestions');
       return [];
     }
   }
@@ -558,6 +559,8 @@ Please provide suggestions in the following JSON format:
       this.updateSuggestionBoxPosition(this.lastTarget, cursorPos);
       
       this.suggestionBox.style.display = 'block';
+      this.suggestionBox.setAttribute('role', 'dialog');
+      this.suggestionBox.setAttribute('aria-label', 'Writing Suggestions');
       this.prepareSuggestionBox(this.lastSuggestions);
       
       setTimeout(() => {
@@ -569,19 +572,51 @@ Please provide suggestions in the following JSON format:
   // Add method to hide suggestion box
   hideSuggestionBox() {
     this.suggestionBox.classList.remove('visible');
+    this.suggestionBox.removeAttribute('aria-hidden');
     setTimeout(() => {
         this.suggestionBox.style.display = "none";
     }, 300);
   }
 
+  // Initialize event listeners
+  init() {
+    // Bind the event handlers to maintain 'this' context
+    this.boundHandleInput = this.handleInput.bind(this);
+    this.boundHandleFocus = this.handleFocus.bind(this);
+    
+    // Add listeners to all matching elements
+    document.querySelectorAll(this.textInputSelector).forEach(element => {
+      element.addEventListener('input', this.boundHandleInput);
+      element.addEventListener('focus', this.boundHandleFocus);
+    });
+    
+    // Add listener for dynamically added elements
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === 1 && node.matches(this.textInputSelector)) {
+            node.addEventListener('input', this.boundHandleInput);
+            node.addEventListener('focus', this.boundHandleFocus);
+          }
+        });
+      });
+    });
+    
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
   // Event Handlers
   handleInput = (event) => {
+    console.log('Input event triggered');
     const target = event.target;
+    this.lastTarget = target;  // Store the target for later use
     const text = target.value || target.innerText;
     
     // Skip processing for delete/backspace to allow normal text deletion
     if (event.inputType === 'deleteContentBackward' || event.inputType === 'deleteContentForward') {
-      // Clear any existing suggestions when text is deleted
       this.clearSuggestions();
       return;
     }
@@ -597,6 +632,7 @@ Please provide suggestions in the following JSON format:
       // Skip if text hasn't changed
       if (text === this.lastAnalyzedText) return;
       
+      console.log('Checking grammar for:', text);
       const suggestions = await this.checkGrammar(text);
       if (suggestions) {
         this.lastAnalyzedText = text;
@@ -832,7 +868,7 @@ Please provide suggestions in the following JSON format:
     const circle = document.getElementById('suggestion-circle');
     if (!circle) return;
 
-    // Reset classes and add new state
+    // Reset classes and then force inline styles with !important
     circle.className = 'suggestion-circle';
     circle.classList.add(state);
 
@@ -840,28 +876,29 @@ Please provide suggestions in the following JSON format:
     if (!content) return;
     
     switch (state) {
-        case 'loading':
-            content.innerHTML = '<div class="spinner"></div>';
-            circle.style.display = 'flex';
-            circle.style.opacity = '1';
-            break;
-        case 'has-suggestions':
-            content.textContent = count;
-            circle.style.display = 'flex';
-            circle.style.opacity = '1';
-            break;
-        case 'no-suggestions':
-            content.textContent = '0';
-            circle.style.opacity = '0';
-            setTimeout(() => {
-                circle.style.display = 'none';
-            }, 300);
-            break;
-        default:
-            circle.style.opacity = '0';
-            setTimeout(() => {
-                circle.style.display = 'none';
-            }, 300);
+      case 'loading':
+        content.innerHTML = `
+          <div class="spinner" style="
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.9);
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+          "></div>`;
+        circle.style.backgroundColor = '#9F7AEA';  // Purple for loading
+        content.setAttribute('aria-label', 'Checking writing...');
+        break;
+      case 'has-suggestions':
+        content.textContent = count;
+        circle.style.backgroundColor = '#F56565';  // Red for suggestions
+        content.setAttribute('aria-label', `${count} writing suggestions available`);
+        break;
+      case 'no-suggestions':
+        content.textContent = '0';
+        circle.style.backgroundColor = '#38B2AC';  // Teal for no suggestions
+        content.setAttribute('aria-label', 'No writing suggestions');
+        break;
     }
   }
 
@@ -997,29 +1034,9 @@ Please provide suggestions in the following JSON format:
 
   // Add new helper method to clear suggestions
   clearSuggestions() {
-    // Clear state
     this.lastSuggestions = null;
-    
-    // Clear suggestion box content
-    if (this.suggestionBox) {
-      // Remove all existing categories and suggestions
-      this.suggestionBox.innerHTML = '';
-      
-      // If box is visible, show loading state
-      if (this.suggestionBox.classList.contains('visible')) {
-        // Add loading message
-        const loadingMsg = document.createElement('div');
-        loadingMsg.className = 'suggestion-category';
-        loadingMsg.style.textAlign = 'center';
-        loadingMsg.style.color = '#718096';
-        loadingMsg.innerHTML = `
-          <div style="margin: 20px 0;">
-            <div>Checking text...</div>
-          </div>
-        `;
-        this.suggestionBox.appendChild(loadingMsg);
-      }
-    }
+    this.updateCircleState('no-suggestions');
+    this.hideSuggestionBox();
   }
 
   // Update loadSettings method
